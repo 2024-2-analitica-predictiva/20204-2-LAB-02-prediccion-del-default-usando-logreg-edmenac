@@ -94,3 +94,226 @@
 # {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
 # {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
 #
+
+import os
+import json
+import pickle
+import pandas as pd
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV
+import warnings
+from sklearn.metrics import (
+    precision_score,
+    balanced_accuracy_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+)
+
+
+warnings.filterwarnings("ignore")
+
+
+# ------------------------------------------------------------------------------
+# Paso 1.
+# Realice la limpieza de los datasets:
+# - Renombre la columna "default payment next month" a "default".
+# - Remueva la columna "ID".
+# - Elimine los registros con informacion no disponible.
+# - Para la columna EDUCATION, valores > 4 indican niveles superiores
+#   de educación, agrupe estos valores en la categoría "others".
+#
+def clean_dataset(df):
+    df = df.rename(columns={"default payment next month": "default"})
+    df = df.drop(columns=["ID"])
+    df = df.dropna()
+    df.loc[df["EDUCATION"] > 4, "EDUCATION"] = 4
+    return df
+
+
+# ------------------------------------------------------------------------------
+# Paso 2.
+# Divida los datasets en x_train, y_train, x_test, y_test.
+#
+def split_dataset(df):
+    y = df["default"]
+    X = df.drop(columns=["default"])
+    return X, y
+
+
+# ------------------------------------------------------------------------------
+# Paso 3.
+# Cree un pipeline para el modelo de clasificación. Este pipeline debe
+# contener las siguientes capas:
+# - Transforma las variables categoricas usando el método
+#   one-hot-encoding.
+# - Escala las demas variables al intervalo [0, 1].
+# - Selecciona las K mejores caracteristicas.
+# - Ajusta un modelo de regresion logistica.
+#
+def create_pipeline():
+    categorical_features = ["SEX", "EDUCATION", "MARRIAGE"]
+    numerical_features = list(set(x_train.columns) - set(categorical_features))
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
+            ("num", MinMaxScaler(), numerical_features),
+        ]
+    )
+    pipeline = Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            ("selector", SelectKBest(f_classif)),
+            ("classifier", LogisticRegression()),
+        ]
+    )
+    return pipeline
+
+
+# ------------------------------------------------------------------------------
+# Paso 4.
+# Optimice los hiperparametros del pipeline usando validación cruzada.
+# Use 10 splits para la validación cruzada. Use la función de precision
+# balanceada para medir la precisión del modelo.
+#
+def optimize_hyperparameters(pipeline, x_train, y_train):
+    param_grid = {
+        "selector__k": [0, 1, 2, 5, 10, 15],
+        "classifier__C": [0.1, 1, 10],
+        "classifier__solver": ["liblinear", "saga"],
+    }
+    grid_search = GridSearchCV(pipeline, param_grid, cv=10, scoring="balanced_accuracy")
+    grid_search.fit(x_train, y_train)
+    return grid_search
+
+
+# ------------------------------------------------------------------------------
+# Paso 5.
+# Salve el modelo como "files/models/model.pkl".
+#
+def save_model(model):
+    os.makedirs(
+        r"C:/Users/edmc9/Documents/GitHub/Especializacion_Analitica/Analitica_predictiva/20204-2-LAB-02-prediccion-del-default-usando-logreg-edmenac/files/models",
+        exist_ok=True,
+    )
+    with open(
+        r"C:/Users/edmc9/Documents/GitHub/Especializacion_Analitica/Analitica_predictiva/20204-2-LAB-02-prediccion-del-default-usando-logreg-edmenac/files/models/model.pkl",
+        "wb",
+    ) as file:
+        pickle.dump(model, file)
+
+
+# ------------------------------------------------------------------------------
+# Paso 6.
+# Calcule las metricas de precision, precision balanceada, recall,
+# y f1-score para los conjuntos de entrenamiento y prueba.
+# Guardelas en el archivo files/output/metrics.json. Cada fila
+# del archivo es un diccionario con las metricas de un modelo.
+# Este diccionario tiene un campo para indicar si es el conjunto
+# de entrenamiento o prueba. Por ejemplo:
+#
+# {'type': 'metrics', 'dataset': 'train', 'precision': 0.8, 'balanced_accuracy': 0.7, 'recall': 0.9, 'f1_score': 0.85}
+# {'type': 'metrics', 'dataset': 'test', 'precision': 0.7, 'balanced_accuracy': 0.6, 'recall': 0.8, 'f1_score': 0.75}
+#
+def calculate_metrics(model, x_train, y_train, x_test, y_test):
+    metrics = []
+    for dataset, x, y in [("train", x_train, y_train), ("test", x_test, y_test)]:
+        y_pred = model.predict(x)
+        precision = round(precision_score(y, y_pred), 3)
+        balanced_accuracy = round(balanced_accuracy_score(y, y_pred), 3)
+        recall = round(recall_score(y, y_pred), 3)
+        f1 = round(f1_score(y, y_pred), 3)
+        metrics.append(
+            {
+                "type": "metrics",
+                "dataset": dataset,
+                "precision": float(precision),
+                "balanced_accuracy": float(balanced_accuracy),
+                "recall": float(recall),
+                "f1_score": float(f1),
+            }
+        )
+    return metrics
+
+
+# ------------------------------------------------------------------------------
+# Paso 7.
+# Calcule las matrices de confusion para los conjuntos de entrenamiento y
+# prueba. Guardelas en el archivo files/output/metrics.json. Cada fila
+# del archivo es un diccionario con las metricas de un modelo.
+# de entrenamiento o prueba. Por ejemplo:
+#
+# {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
+# {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
+#
+def calculate_confusion_matrix(model, x_train, y_train, x_test, y_test):
+    cm_matrices = []
+    for dataset, x, y in [("train", x_train, y_train), ("test", x_test, y_test)]:
+        y_pred = model.predict(x)
+        cm = confusion_matrix(y, y_pred)
+        cm_matrices.append(
+            {
+                "type": "cm_matrix",
+                "dataset": dataset,
+                "true_0": {"predicted_0": int(cm[0, 0]), "predicted_1": int(cm[0, 1])},
+                "true_1": {"predicted_0": int(cm[1, 0]), "predicted_1": int(cm[1, 1])},
+            }
+        )
+    return cm_matrices
+
+
+# ------------------------------------------------------------------------------
+# Main
+#
+if __name__ == "__main__":
+    # Load datasets
+    df_train = pd.read_csv(
+        r"C:/Users/edmc9/Documents/GitHub/Especializacion_Analitica/Analitica_predictiva/20204-2-LAB-02-prediccion-del-default-usando-logreg-edmenac/files/input/train_data.csv.zip",
+        compression="zip",
+        index_col=None,
+    )
+    df_test = pd.read_csv(
+        r"C:/Users/edmc9/Documents/GitHub/Especializacion_Analitica/Analitica_predictiva/20204-2-LAB-02-prediccion-del-default-usando-logreg-edmenac/files/input/test_data.csv.zip",
+        compression="zip",
+        index_col=None,
+    )
+
+    # Clean datasets
+    df_train = clean_dataset(df_train)
+    df_test = clean_dataset(df_test)
+
+    # Split datasets
+    x_train, y_train = split_dataset(df_train)
+    x_test, y_test = split_dataset(df_test)
+
+    # Create pipeline
+    pipeline = create_pipeline()
+
+    # Optimize hyperparameters
+    model = optimize_hyperparameters(pipeline, x_train, y_train)
+
+    # Save model
+    save_model(model)
+
+    # Calculate metrics
+    metrics = calculate_metrics(model, x_train, y_train, x_test, y_test)
+
+    # Calculate confusion matrix
+    cm_matrices = calculate_confusion_matrix(model, x_train, y_train, x_test, y_test)
+
+    # Save metrics
+    os.makedirs(
+        r"C:/Users/edmc9/Documents/GitHub/Especializacion_Analitica/Analitica_predictiva/20204-2-LAB-02-prediccion-del-default-usando-logreg-edmenac/files/output",
+        exist_ok=True,
+    )
+    with open(
+        r"C:/Users/edmc9/Documents/GitHub/Especializacion_Analitica/Analitica_predictiva/20204-2-LAB-02-prediccion-del-default-usando-logreg-edmenac/files/output/metrics.json",
+        "w",
+    ) as file:
+        json.dump(metrics + cm_matrices, file, indent=4)
+        # for metric in metrics + cm_matrices:
+        #     file.write(json.dumps(metric) + "\n")
