@@ -2,18 +2,18 @@
     {
         "type": "metrics",
         "dataset": "train",
-        "precision": 0.693,
-        "balanced_accuracy": 0.639,
-        "recall": 0.319,
-        "f1_score": 0.437
+        "precision": 0.6933,
+        "balanced_accuracy": 0.6392,
+        "recall": 0.31944,
+        "f1_score": 0.43736
     },
     {
         "type": "metrics",
         "dataset": "test",
-        "precision": 0.701,
-        "balanced_accuracy": 0.655,
-        "recall": 0.349,
-        "f1_score": 0.466
+        "precision": 0.70063,
+        "balanced_accuracy": 0.6546,
+        "recall": 0.3494,
+        "f1_score": 0.46627
     },
     {
         "type": "cm_matrix",
